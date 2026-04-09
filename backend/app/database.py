@@ -16,27 +16,40 @@ connect_args = {"check_same_thread": False} if sqlite_url.startswith("sqlite") e
 engine = create_engine(sqlite_url, echo=False, connect_args=connect_args)
 
 def create_db_and_tables():
-    # Diagnostic logging using proper parsing
+    # Unbreakable primitive diagnostic logging
     try:
-        # We need to handle the fact that some schemes might be postgresql://
-        # urlparse works well for standard URIs
-        parsed = urllib.parse.urlparse(sqlite_url)
-        
-        # Mask password securely
-        safe_url = sqlite_url
-        if parsed.password:
-            safe_url = sqlite_url.replace(parsed.password, "****")
+        if "://" in sqlite_url:
+            # 1. Split protocol (e.g. postgresql://)
+            after_protocol = sqlite_url.split("://")[1]
             
-        logger.info(f"🔍 [DB DIAGNOSTIC] Username: {parsed.username}")
-        logger.info(f"🔍 [DB DIAGNOSTIC] Host: {parsed.hostname}")
-        logger.info(f"🔍 [DB DIAGNOSTIC] Port: {parsed.port}")
-        logger.info(f"🔍 [DB DIAGNOSTIC] Masked URL: {safe_url}")
+            # 2. Split userinfo (user:pass) and hostinfo (host:port/db)
+            if "@" in after_protocol:
+                # We split on the LAST @ to handle passwords containing @ (though they should be encoded)
+                at_index = after_protocol.rfind("@")
+                userinfo = after_protocol[:at_index]
+                hostinfo = after_protocol[at_index+1:]
+                
+                # 3. Split username and password
+                raw_username = userinfo.split(":")[0] if ":" in userinfo else userinfo
+                logger.info(f"🔍 [RAW DIAGNOSTIC] Username detected: {raw_username}")
+                
+                # 4. Extract host and port
+                raw_host_port = hostinfo.split("/")[0] if "/" in hostinfo else hostinfo
+                logger.info(f"🔍 [RAW DIAGNOSTIC] Host:Port detected: {raw_host_port}")
 
-        # Check for common username mistake
-        if parsed.username == "postgres" and not sqlite_url.startswith("sqlite"):
-             logger.error("🛑 CRITICAL: You are using the username 'postgres' with the cloud pooler. This is why authentication is failing. You must use 'postgres.[YOUR-PROJECT-REF]'. Check CLOUD_SETUP_GUIDE.md.")
+                # Masked URL for general check
+                masked_url = sqlite_url
+                if ":" in userinfo:
+                    password = userinfo.split(":")[1]
+                    masked_url = sqlite_url.replace(password, "****")
+                logger.info(f"🔍 [RAW DIAGNOSTIC] Masked URL: {masked_url}")
+
+                if raw_username == "postgres" and not sqlite_url.startswith("sqlite"):
+                     logger.error("🛑 CRITICAL: You are using the username 'postgres'. You must use 'postgres.[YOUR-PROJECT-REF]' for the cloud pooler.")
+            else:
+                logger.info(f"🔍 [RAW DIAGNOSTIC] No '@' found. Protocol: {sqlite_url.split('://')[0]}")
     except Exception as e:
-        logger.info(f"Diagnostic Log Error: {e}")
+        logger.info(f"🔍 [RAW DIAGNOSTIC] Error during logic: {e}")
 
     SQLModel.metadata.create_all(engine)
 
