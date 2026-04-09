@@ -1,0 +1,33 @@
+# syntax version
+services:
+  - type: web
+    name: ielts-daily-api
+    runtime: python
+    region: singapore  # closest free region to Vietnam
+    plan: free
+
+    # Build: install uv then sync deps from pyproject.toml
+    buildCommand: pip install uv && uv pip install --system -e .
+
+    # Start: listen on Render's dynamic $PORT, allow all hosts
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+
+    # Health check — Render will restart if this fails
+    healthCheckPath: /health
+
+    envVars:
+      # ── LLM keys — set these in Render dashboard, NOT here ──
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GROQ_API_KEY
+        sync: false
+      - key: NVIDIA_API_KEY
+        sync: false
+
+      # ── Database — paste Supabase connection string in Render dashboard ──
+      - key: DATABASE_URL
+        sync: false
+
+      # ── CORS: allow your Vercel frontend + any Expo origin ──
+      - key: CORS_ORIGINS
+        value: "https://your-app.vercel.app,exp://,http://localhost:8081"
