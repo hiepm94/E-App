@@ -1,5 +1,6 @@
 import logging
 import re
+import urllib.parse
 from sqlmodel import create_engine, SQLModel, Session
 from app.core.config import settings
 
@@ -11,21 +12,31 @@ _is_sqlite = settings.DATABASE_URL.startswith("sqlite")
 # In the future, this can point to Postgres vs SQLite cleanly via Env
 sqlite_url = settings.DATABASE_URL
 connect_args = {"check_same_thread": False} if sqlite_url.startswith("sqlite") else {}
+
 engine = create_engine(sqlite_url, echo=False, connect_args=connect_args)
 
 def create_db_and_tables():
-    # Mask password for safe diagnostic logging
-    safe_url = re.sub(r':([^@]+)@', ':****@', sqlite_url)
-    logger.info(f"Database Diagnostic - URL: {safe_url}")
+    # Diagnostic logging using proper parsing
+    try:
+        # We need to handle the fact that some schemes might be postgresql://
+        # urlparse works well for standard URIs
+        parsed = urllib.parse.urlparse(sqlite_url)
+        
+        # Mask password securely
+        safe_url = sqlite_url
+        if parsed.password:
+            safe_url = sqlite_url.replace(parsed.password, "****")
+            
+        logger.info(f"🔍 [DB DIAGNOSTIC] Username: {parsed.username}")
+        logger.info(f"🔍 [DB DIAGNOSTIC] Host: {parsed.hostname}")
+        logger.info(f"🔍 [DB DIAGNOSTIC] Port: {parsed.port}")
+        logger.info(f"🔍 [DB DIAGNOSTIC] Masked URL: {safe_url}")
 
-    # Check for common username mistake
-    if not sqlite_url.startswith("sqlite") and "://" in sqlite_url:
-        try:
-            user_part = sqlite_url.split("://")[1].split(":")[0]
-            if user_part == "postgres":
-                 logger.error("🛑 CRITICAL: You are using the username 'postgres' with the cloud pooler. This is why authentication is failing. You must use 'postgres.[YOUR-PROJECT-REF]'. Check CLOUD_SETUP_GUIDE.md.")
-        except Exception:
-            pass
+        # Check for common username mistake
+        if parsed.username == "postgres" and not sqlite_url.startswith("sqlite"):
+             logger.error("🛑 CRITICAL: You are using the username 'postgres' with the cloud pooler. This is why authentication is failing. You must use 'postgres.[YOUR-PROJECT-REF]'. Check CLOUD_SETUP_GUIDE.md.")
+    except Exception as e:
+        logger.info(f"Diagnostic Log Error: {e}")
 
     SQLModel.metadata.create_all(engine)
 
