@@ -116,6 +116,9 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    // 1. Wake up the backend (Render free tier) immediately
+    auth.prewarm();
+    // 2. Check login status
     checkAuth();
   }, [checkAuth]);
 
@@ -123,6 +126,22 @@ export default function App() {
     return (
       <View style={{ flex: 1, backgroundColor: THEME.colors.background, justifyContent: 'center', alignItems: 'center' }}>
         <ActivityIndicator size="large" color={THEME.colors.primary} />
+        <Text style={{ 
+          marginTop: 20, 
+          color: THEME.colors.textMuted, 
+          fontWeight: '600',
+          fontSize: 14 
+        }}>
+          Initialising IELTS Daily...
+        </Text>
+        <Text style={{ 
+          marginTop: 8, 
+          color: THEME.colors.textMuted, 
+          fontSize: 12,
+          fontStyle: 'italic'
+        }}>
+          (Waking up server if idle)
+        </Text>
       </View>
     );
   }

@@ -50,12 +50,13 @@ async def create_vocab(
     LLM expansion and DuckDuckGo media scrape run IN PARALLEL
     (asyncio.gather) to minimise total latency.
     """
-    # Run synchronously
-    llm_data = generate_vocab_expansion(req.word, req.context or "")
+    # Run asynchronously
+    llm_data = await generate_vocab_expansion(req.word, req.context or "")
     media = await get_media_for_word(req.word)
 
     vocab = Vocab(
         word=req.word.strip(),
+        user_id=current_user.id,
         original_context=req.context,
         pronunciation=llm_data.get("pronunciation", ""),
         synonyms=llm_data.get("synonyms", []),
@@ -74,7 +75,14 @@ async def list_vocab(
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
 ):
-    return session.exec(select(Vocab).order_by(Vocab.created_at.desc())).all()
+    """List vocab for the current user, limited to 60 for speed."""
+    statement = (
+        select(Vocab)
+        .where(Vocab.user_id == current_user.id)
+        .order_by(Vocab.created_at.desc())
+        .limit(60)
+    )
+    return session.exec(statement).all()
 
 
 @router.delete("/vocab/{vocab_id}", status_code=204)
@@ -102,13 +110,14 @@ async def create_parrot(
     Save a new parrot phrase/sentence.
     Automatically generates linguistic tagging and context explanations via LLM.
     """
-    llm_data = generate_parrot_expansion(req.sentence)
+    llm_data = await generate_parrot_expansion(req.sentence)
     
     # Merge any manually provided tags with AI-generated ones, removing duplicates
     combined_tags = list(set((req.tags or []) + llm_data.get("tags", [])))
 
     parrot = Parrot(
         sentence=req.sentence.strip(), 
+        user_id=current_user.id,
         tags=combined_tags, 
         explanation=llm_data.get("explanation", "")
     )
@@ -123,7 +132,14 @@ async def list_parrots(
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
 ):
-    return session.exec(select(Parrot).order_by(Parrot.created_at.desc())).all()
+    """List parrots for the current user, limited to 60 for speed."""
+    statement = (
+        select(Parrot)
+        .where(Parrot.user_id == current_user.id)
+        .order_by(Parrot.created_at.desc())
+        .limit(60)
+    )
+    return session.exec(statement).all()
 
 
 @router.delete("/parrot/{parrot_id}", status_code=204)
@@ -146,8 +162,9 @@ async def create_random_parrot(
     """
     Generate a random interesting English phrase, explain it, and save it.
     """
-    random_sentence = generate_random_parrot_content().get("sentence", "The quick brown fox jumps over the lazy dog.")
-    llm_data = generate_parrot_expansion(random_sentence)
+    random_content = await generate_random_parrot_content()
+    random_sentence = random_content.get("sentence", "The quick brown fox jumps over the lazy dog.")
+    llm_data = await generate_parrot_expansion(random_sentence)
     
     parrot = Parrot(
         sentence=random_sentence, 

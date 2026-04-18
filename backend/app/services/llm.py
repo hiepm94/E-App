@@ -136,7 +136,7 @@ def clean_json(raw: str) -> Any:
 
 # ── Native Sync LLM Routing ─────────────────────────────────────────────
 
-def _call_groq(prompt: str, temperature: float = 0.3) -> str:
+async def _call_groq(prompt: str, temperature: float = 0.3) -> str:
     if not settings.GROQ_API_KEY:
         raise ValueError("No Groq key available")
     
@@ -152,13 +152,13 @@ def _call_groq(prompt: str, temperature: float = 0.3) -> str:
         "max_tokens": 8192,
         "response_format": {"type": "json_object"}
     }
-    with httpx.Client(timeout=90.0) as client:
-        response = client.post(url, headers=headers, json=payload)
+    async with httpx.AsyncClient(timeout=90.0) as client:
+        response = await client.post(url, headers=headers, json=payload)
         response.raise_for_status()
         return response.json()["choices"][0]["message"]["content"]
 
 
-def _call_nvidia(prompt: str, temperature: float = 0.3) -> str:
+async def _call_nvidia(prompt: str, temperature: float = 0.3) -> str:
     """Robust NVIDIA NIM call (Mistral Large 2) with extended timeout and retries."""
     if not settings.NVIDIA_API_KEY:
         raise ValueError("No NVIDIA key available")
@@ -178,11 +178,11 @@ def _call_nvidia(prompt: str, temperature: float = 0.3) -> str:
         "max_tokens": 8192
     }
     
-    # 2-attempt retry logic with 120s timeout (Mistral is normally <1s)
+    # 2-attempt retry logic with 150s timeout
     for attempt in range(2):
         try:
-            with httpx.Client(timeout=150.0) as client:
-                response = client.post(url, headers=headers, json=payload)
+            async with httpx.AsyncClient(timeout=150.0) as client:
+                response = await client.post(url, headers=headers, json=payload)
                 response.raise_for_status()
                 return response.json()["choices"][0]["message"]["content"]
         except Exception as e:
@@ -190,14 +190,14 @@ def _call_nvidia(prompt: str, temperature: float = 0.3) -> str:
             if attempt == 1: raise e
 
 
-def _complete(prompt: str, temperature: float = 0.3) -> str:
+async def _complete(prompt: str, temperature: float = 0.3) -> str:
     """Try Groq first, if it fails try NVIDIA."""
     errs = []
     
     # Preferred: Groq
     if settings.GROQ_API_KEY:
         try:
-            return _call_groq(prompt, temperature=temperature)
+            return await _call_groq(prompt, temperature=temperature)
         except Exception as e:
             logger.warning("Groq primary failed: %s", e)
             errs.append(f"Groq: {str(e)}")
@@ -205,7 +205,7 @@ def _complete(prompt: str, temperature: float = 0.3) -> str:
     # Fallback: NVIDIA
     if settings.NVIDIA_API_KEY:
         try:
-            return _call_nvidia(prompt, temperature=temperature)
+            return await _call_nvidia(prompt, temperature=temperature)
         except Exception as e:
             logger.warning("NVIDIA fallback failed: %s", e)
             errs.append(f"NVIDIA: {str(e)}")
@@ -218,31 +218,31 @@ def _complete(prompt: str, temperature: float = 0.3) -> str:
 
 # ── Public sync service functions ────────────────────────────────────────
 
-def generate_vocab_expansion(word: str, original_context: str = "") -> dict:
+async def generate_vocab_expansion(word: str, original_context: str = "") -> dict:
     word = sanitize_user_input(word[: settings.MAX_WORD_LENGTH])
     original_context = sanitize_user_input(original_context[: settings.MAX_CONTEXT_LENGTH])
 
     prompt = prompts.vocab_expansion(word, original_context)
     try:
-        return clean_json(_complete(prompt))
+        return clean_json(await _complete(prompt))
     except Exception as e:
         logger.warning("Vocab LLM parse failed for word: %s. Error: %s", word, e, exc_info=True)
         return {"pronunciation": "", "synonyms": [], "collocations": [], "example_sentences": []}
 
-def generate_parrot_expansion(sentence: str) -> dict:
+async def generate_parrot_expansion(sentence: str) -> dict:
     sentence = sanitize_user_input(sentence[: settings.MAX_RAW_TASK_LENGTH])
     prompt = prompts.parrot_expansion(sentence)
     try:
-        return clean_json(_complete(prompt))
+        return clean_json(await _complete(prompt))
     except Exception as e:
         logger.warning("Parrot parse failed for sentence: %s. Error: %s", sentence, e, exc_info=True)
         return {"tags": ["unclassified"], "explanation": "Failed to generate context."}
 
-def generate_random_parrot_content() -> dict:
+async def generate_random_parrot_content() -> dict:
     prompt = prompts.generate_random_parrot()
     try:
         # We use a higher temperature (0.9) to ensure randomness and variety for the "Inspiration Parrot"
-        data = clean_json(_complete(prompt, temperature=0.9))
+        data = clean_json(await _complete(prompt, temperature=0.9))
         # Ensure we always return the sentence key
         if "sentence" not in data and "sentences" in data and len(data["sentences"]) > 0:
             data["sentence"] = data["sentences"][0]
@@ -284,13 +284,13 @@ def generate_random_ielts_material(task_type: str) -> dict:
 
 
 
-def evaluate_writing_task(user_text: str, brief: str = "") -> dict:
+async def evaluate_writing_task(user_text: str, brief: str = "") -> dict:
     user_text = sanitize_user_input(user_text[: settings.MAX_SUBMISSION_LENGTH])
     brief = sanitize_user_input(brief[: settings.MAX_CONTEXT_LENGTH])
 
     prompt = prompts.writing_evaluation(user_text, brief)
     try:
-        return clean_json(_complete(prompt))
+        return clean_json(await _complete(prompt))
     except Exception as e:
         logger.warning("Writing evaluation parse failed. Error: %s", e, exc_info=True)
         return {
@@ -318,7 +318,7 @@ def generate_speaking_test() -> dict:
 
 # ── Audio Transcription (Whisper) ──────────────────────────────────────────
 
-def transcribe_audio(audio_bytes: bytes, filename: str, content_type: str = "audio/mpeg") -> str:
+async def transcribe_audio(audio_bytes: bytes, filename: str, content_type: str = "audio/mpeg") -> str:
     """
     Send audio file to Groq's Whisper endpoint.
     Returns the transcribed text.
@@ -331,8 +331,8 @@ def transcribe_audio(audio_bytes: bytes, filename: str, content_type: str = "aud
     files = {"file": (filename, audio_bytes, content_type)}
     data = {"model": "whisper-large-v3", "response_format": "json"}
 
-    with httpx.Client(timeout=60.0) as client:
-        response = client.post(url, headers=headers, files=files, data=data)
+    async with httpx.AsyncClient(timeout=60.0) as client:
+        response = await client.post(url, headers=headers, files=files, data=data)
         response.raise_for_status()
         return response.json().get("text", "")
 

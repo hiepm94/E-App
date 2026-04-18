@@ -63,6 +63,19 @@ export const auth = {
   },
   async logout() {
     await this.clearToken();
+  },
+  /**
+   * Pings the backend to wake it up from "cold start" (Render free tier).
+   */
+  async prewarm() {
+    try {
+      // The health check is at the root directory, one level above /api
+      const rootUrl = API_BASE.split('/api')[0] || API_BASE;
+      console.log(`[PREWARM] Waking up server at ${rootUrl}...`);
+      await fetch(rootUrl);
+    } catch (e) {
+      console.warn('[PREWARM] Server wakeup ping failed (normal if already awake or offline):', e.message);
+    }
   }
 };
 

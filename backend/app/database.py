@@ -11,9 +11,20 @@ logger = logging.getLogger(__name__)
 _is_sqlite = settings.DATABASE_URL.startswith("sqlite")
 # In the future, this can point to Postgres vs SQLite cleanly via Env
 sqlite_url = settings.DATABASE_URL
-connect_args = {"check_same_thread": False} if sqlite_url.startswith("sqlite") else {}
-
-engine = create_engine(sqlite_url, echo=False, connect_args=connect_args)
+# Define engine with optimized pooling for cloud environments (Supabase/Render)
+if _is_sqlite:
+    connect_args = {"check_same_thread": False}
+    engine = create_engine(sqlite_url, echo=False, connect_args=connect_args)
+else:
+    # Optimized for Supabase Transaction Pooler (port 6543)
+    engine = create_engine(
+        sqlite_url,
+        echo=False,
+        pool_size=5,
+        max_overflow=10,
+        pool_pre_ping=True,
+        pool_recycle=3600,
+    )
 
 def create_db_and_tables():
     # Unbreakable primitive diagnostic logging

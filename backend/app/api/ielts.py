@@ -56,7 +56,7 @@ class NewStudyMaterialRequest(BaseModel):
 # ── Material (Reading / Listening) ────────────────────────────────────────
 
 @router.post("/material", status_code=201)
-def create_material_and_task(
+async def create_material_and_task(
     req: ImportMaterialRequest,
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
@@ -75,7 +75,7 @@ def create_material_and_task(
         
         # If manual exercises provided, extract them
         if req.raw_text:
-            extracted = extract_ielts_task(req.raw_transcript, req.type, req.raw_text)
+            extracted = await extract_ielts_task(req.raw_transcript, req.type, req.raw_text)
             parts = extracted.get("parts", [])
             if not parts:
                 # AI Fallback: Create 1 study passage if extraction failed
@@ -109,7 +109,7 @@ def create_material_and_task(
         session.refresh(test)
 
         if req.raw_text:
-            extracted = extract_ielts_task(req.raw_transcript, req.type, req.raw_text)
+            extracted = await extract_ielts_task(req.raw_transcript, req.type, req.raw_text)
             parts = extracted.get("parts", [])
             if not parts:
                 # AI Fallback: Create 1 study section if extraction failed
@@ -141,7 +141,7 @@ def create_material_and_task(
     return {"status": "success", "test_id": test.id}
 
 @router.get("/study-materials")
-def list_study_materials(
+async def list_study_materials(
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
 ):
@@ -153,7 +153,7 @@ def list_study_materials(
     return materials
 
 @router.post("/study-materials", status_code=201)
-def create_study_material(
+async def create_study_material(
     req: NewStudyMaterialRequest,
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
@@ -171,7 +171,7 @@ def create_study_material(
     return material
 
 @router.delete("/study-materials/{material_id}")
-def delete_study_material(
+async def delete_study_material(
     material_id: int,
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
@@ -185,7 +185,7 @@ def delete_study_material(
 
 
 @router.post("/material/reading/part/{part_id}/generate", status_code=200)
-def generate_reading_part_questions(
+async def generate_reading_part_questions(
     part_id: int, 
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
@@ -194,7 +194,7 @@ def generate_reading_part_questions(
     if not passage:
         raise HTTPException(status_code=404, detail="Passage not found")
     
-    result = generate_part_exercises(passage.content, "reading", part_num=passage.passage_number)
+    result = await generate_part_exercises(passage.content, "reading", part_num=passage.passage_number)
     passage.questions = result.get("questions", [])
     session.add(passage)
     session.commit()
@@ -203,7 +203,7 @@ def generate_reading_part_questions(
 
 
 @router.post("/material/listening/part/{part_id}/generate", status_code=200)
-def generate_listening_part_questions(
+async def generate_listening_part_questions(
     part_id: int, 
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
@@ -212,7 +212,7 @@ def generate_listening_part_questions(
     if not section:
         raise HTTPException(status_code=404, detail="Section not found")
     
-    result = generate_part_exercises(section.transcript_segment, "listening", part_num=section.section_number)
+    result = await generate_part_exercises(section.transcript_segment, "listening", part_num=section.section_number)
     section.questions = result.get("questions", [])
     session.add(section)
     session.commit()
@@ -220,7 +220,7 @@ def generate_listening_part_questions(
     return {"status": "success", "questions": section.questions}
 
 @router.post("/material/generate", status_code=201)
-def generate_daily_material(
+async def generate_daily_material(
     type: str, 
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
@@ -228,18 +228,18 @@ def generate_daily_material(
     if type not in ("reading", "listening"):
         raise HTTPException(status_code=400, detail="type must be 'reading' or 'listening'")
         
-    ai_data = generate_random_ielts_material(type)
+    ai_data = await generate_random_ielts_material(type)
     transcript = ai_data.get("transcript", "Error generating transcript")
     topic = ai_data.get("topic", f"Generated {type.capitalize()} Test")
     
-    extracted = extract_ielts_task(transcript, type)
+    extracted = await extract_ielts_task(transcript, type)
 
     if type == "reading":
         parts = extracted.get("parts", [])
         if not parts:
             raise HTTPException(status_code=500, detail="AI failed to structure the test passages. Please try again.")
             
-        test = IELTSReadingTest(full_text=transcript, topic=topic)
+        test = IELTSReadingTest(full_text=transcript, topic=topic, user_id=current_user.id)
         session.add(test)
         session.commit()
         session.refresh(test)
@@ -258,7 +258,7 @@ def generate_daily_material(
         if not parts:
             raise HTTPException(status_code=500, detail="AI failed to structure the listening sections. Please try again.")
 
-        test = IELTSListeningTest(full_transcript=transcript, topic=topic)
+        test = IELTSListeningTest(full_transcript=transcript, topic=topic, user_id=current_user.id)
         session.add(test)
         session.commit()
         session.refresh(test)
@@ -279,13 +279,18 @@ def generate_daily_material(
 
 
 @router.get("/material")
-def list_materials(
+async def list_materials(
     type: Optional[str] = None,
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
 ):
     if type == "reading":
-        tests = session.exec(select(IELTSReadingTest).order_by(IELTSReadingTest.created_at.desc())).all()
+        tests = session.exec(
+            select(IELTSReadingTest)
+            .where(IELTSReadingTest.user_id == current_user.id)
+            .order_by(IELTSReadingTest.created_at.desc())
+            .limit(30)
+        ).all()
         result = []
         for t in tests:
             passages = session.exec(select(IELTSReadingPassage).where(IELTSReadingPassage.test_id == t.id).order_by(IELTSReadingPassage.passage_number)).all()
@@ -303,7 +308,12 @@ def list_materials(
             })
         return result
     else:
-        tests = session.exec(select(IELTSListeningTest).order_by(IELTSListeningTest.created_at.desc())).all()
+        tests = session.exec(
+            select(IELTSListeningTest)
+            .where(IELTSListeningTest.user_id == current_user.id)
+            .order_by(IELTSListeningTest.created_at.desc())
+            .limit(30)
+        ).all()
         result = []
         for t in tests:
             sections = session.exec(select(IELTSListeningSection).where(IELTSListeningSection.test_id == t.id).order_by(IELTSListeningSection.section_number)).all()
@@ -324,7 +334,7 @@ def list_materials(
 
 
 @router.delete("/material/{material_id}")
-def delete_material(
+async def delete_material(
     material_id: int, 
     type: str = "listening", 
     session: Session = Depends(get_session),
@@ -351,7 +361,7 @@ def delete_material(
 # ── Writing & Journal ─────────────────────────────────────────────────────
 
 @router.post("/writing/journal/submit", status_code=201)
-def create_journal_entry(
+async def create_journal_entry(
     req: SubmitWritingRequest, 
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
@@ -359,7 +369,7 @@ def create_journal_entry(
     """Creates a freestyle journal entry with AI feedback."""
     snippet = req.user_submission[:30].strip() + "..."
     topic = f"Journal - {snippet}"
-    evaluation = evaluate_writing_task(req.user_submission, "Freestyle Journal Entry")
+    evaluation = await evaluate_writing_task(req.user_submission, "Freestyle Journal Entry")
     entry = DailyJournal(user_submission=req.user_submission, correction_feedback=evaluation, topic=topic, user_id=current_user.id)
     session.add(entry)
     session.commit()
@@ -371,13 +381,13 @@ def create_journal_entry(
 
 
 @router.post("/writing/{task_id}/submit", status_code=200)
-def submit_writing_task(
+async def submit_writing_task(
     task_id: int, 
     req: SubmitWritingRequest, 
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
 ):
-    evaluation = evaluate_writing_task(req.user_submission, req.brief_content)
+    evaluation = await evaluate_writing_task(req.user_submission, req.brief_content)
 
     if req.type == "daily_journal":
         snippet = req.user_submission[:30].strip() + "..."
@@ -408,12 +418,22 @@ def submit_writing_task(
 
 
 @router.get("/writing")
-def list_writing(
+async def list_writing(
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
 ):
-    tests = session.exec(select(IELTSWritingTest).order_by(IELTSWritingTest.created_at.desc())).all()
-    journals = session.exec(select(DailyJournal).order_by(DailyJournal.created_at.desc())).all()
+    tests = session.exec(
+        select(IELTSWritingTest)
+        .where(IELTSWritingTest.user_id == current_user.id)
+        .order_by(IELTSWritingTest.created_at.desc())
+        .limit(30)
+    ).all()
+    journals = session.exec(
+        select(DailyJournal)
+        .where(DailyJournal.user_id == current_user.id)
+        .order_by(DailyJournal.created_at.desc())
+        .limit(30)
+    ).all()
     
     result = []
     for t in tests:
@@ -431,7 +451,7 @@ def list_writing(
     return result
 
 @router.delete("/writing/{item_id}", status_code=204)
-def delete_writing(
+async def delete_writing(
     item_id: str, 
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
@@ -451,11 +471,11 @@ def delete_writing(
     session.commit()
 
 @router.post("/writing/generate", status_code=201)
-def api_generate_writing_test(
+async def api_generate_writing_test(
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
 ):
-    generated = generate_writing_test()
+    generated = await generate_writing_test()
     test = IELTSWritingTest(topic=generated.get("topic", "Writing Test"), user_id=current_user.id)
     session.add(test)
     session.commit()
@@ -474,11 +494,11 @@ def api_generate_writing_test(
     return {"status": "success"}
 
 @router.post("/speaking/generate", status_code=201)
-def api_generate_speaking_test(
+async def api_generate_speaking_test(
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
 ):
-    generated = generate_speaking_test()
+    generated = await generate_speaking_test()
     test = IELTSSpeakingTest(topic=generated.get("topic", "Speaking Test"), user_id=current_user.id)
     session.add(test)
     session.commit()
@@ -513,13 +533,13 @@ async def api_transcribe_audio(
 
 
 @router.post("/speaking/{part_id}/submit", status_code=200)
-def submit_speaking(
+async def submit_speaking(
     part_id: int, 
     req: SubmitWritingRequest, 
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
 ):
-    evaluation = evaluate_writing_task(req.user_submission, req.brief_content)
+    evaluation = await evaluate_writing_task(req.user_submission, req.brief_content)
     part = session.get(IELTSSpeakingPartRecord, part_id)
     if not part:
         raise HTTPException(status_code=404, detail="Part not found")
@@ -536,11 +556,16 @@ def submit_speaking(
     }
 
 @router.get("/speaking")
-def list_speaking(
+async def list_speaking(
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
 ):
-    tests = session.exec(select(IELTSSpeakingTest).order_by(IELTSSpeakingTest.created_at.desc())).all()
+    tests = session.exec(
+        select(IELTSSpeakingTest)
+        .where(IELTSSpeakingTest.user_id == current_user.id)
+        .order_by(IELTSSpeakingTest.created_at.desc())
+        .limit(30)
+    ).all()
     result = []
     for t in tests:
         parts = session.exec(select(IELTSSpeakingPartRecord).where(IELTSSpeakingPartRecord.test_id == t.id).order_by(IELTSSpeakingPartRecord.part_number)).all()
@@ -551,7 +576,7 @@ def list_speaking(
     return result
 
 @router.delete("/speaking/{test_id}", status_code=204)
-def delete_speaking(
+async def delete_speaking(
     test_id: int, 
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),

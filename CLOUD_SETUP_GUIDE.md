@@ -1,87 +1,90 @@
-# ☁️ IELTS Daily: Master Cloud Setup Guide
+# ☁️ IELTS Daily: Cloud Setup Master Guide
 
-This guide provides a detailed, step-by-step walkthrough for deploying the IELTS Daily application to the cloud using **Supabase** (Database), **Render** (Backend), and **Vercel** (Frontend).
+> [!CAUTION]
+> **TOP 3 MISTAKES CAUSING AUTH ERRORS**:
+> 1.  **USERNAME**: Your username is **NOT** just `postgres`. It must be `postgres.[YOUR-REF]`. 
+> 2.  **SYMBOLS**: If your password has symbols like `#`, `@`, or `!`, you **MUST** encode them (e.g., `#` becomes `%23`).
+> 3.  **PORT**: In the cloud, use port **6543** (not 5432).
 
 ---
 
-## 🏗️ Architecture Overview
+## 🚀 COPY-PASTE CHEAT SHEET (Your Specific Project)
 
-The application follows a standard full-stack architecture:
-1.  **Database**: Supabase (PostgreSQL) — Stores all users, vocabulary, and practice data.
-2.  **Backend**: Render (FastAPI) — Handles AI logic, scraping, and database orchestration.
-3.  **Frontend**: Vercel (React Native Web) — The primary user interface.
+If you are using the project reference `gerrhzhfwfhcabxhxgvd`, copy and paste this into Render, replacing **ONLY** the password part:
+
+**`DATABASE_URL`**:
+`postgresql://postgres.gerrhzhfwfhcabxhxgvd:[YOUR-PASSWORD]@aws-1-ap-northeast-1.pooler.supabase.com:6543/postgres?sslmode=require`
+
+### 🔑 Password Symbol Cheat Sheet
+If your password has these symbols, replace them in the string above:
+| Symbol | Replace with |
+| :--- | :--- |
+| `@` | `%40` |
+| `#` | `%23` |
+| `!` | `%21` |
+| `/` | `%2F` |
+| `$` | `%24` |
 
 ---
 
 ## 🗄️ Step 1: Database Setup (Supabase)
 
-Supabase gives you a professional-grade PostgreSQL database for free.
-
-1.  **Create Project**: Go to [supabase.com](https://supabase.com) and create a **New Project**.
-2.  **Database Password**: Note down your database password immediately. You will need it in Step 2.
-3.  **Get Connection String**:
-    - Go to **Project Settings** (gear icon) -> **Database**.
-    - Scroll to **Connection string**.
-    - Select **URI**.
-    - Copy the string. It looks like this:
-      `postgresql://postgres:[YOUR-PASSWORD]@db.xxxx.supabase.co:5432/postgres`
-    - **Crucial**: Replace `[YOUR-PASSWORD]` with your actual password.
+1.  **Project Settings**: Go to **Project Settings** (gear icon) -> **Database**.
+2.  **Connection Pooler**: Scroll down to the **Connection Pooler** section.
+3.  **Mode**: Select **Transaction**.
+4.  **URI**: Copy the URI provided.
+    - **Verify Username**: It should start with `postgres.gerrhzhfwfhcabxhxgvd`.
+    - **Verify Port**: It should end in `:6543/postgres`.
 
 ---
 
 ## ⚙️ Step 2: Backend Deployment (Render)
 
-Render will host your Python API. It will automatically detect your `render.yaml` configuration.
-
-1.  **Connect Repo**: Go to [render.com](https://render.com) -> **New** -> **Web Service**.
-2.  **Select Repository**: Connect your GitHub repository containing the code.
-3.  **Configure Settings**:
-    - **Name**: `ielts-daily-api`
+1.  **Connect Repo**: Connect your GitHub repo at [render.com](https://render.com).
+2.  **Configure Settings**:
     - **Root Directory**: `backend`
-    - **Runtime**: `Python`
     - **Build Command**: `pip install uv && uv pip install --system -e .`
-    - **Start Command**: `uvicorn app.main:app --host 0.0.0.0 --port $PORT`
-4.  **Environment Variables**:
-    - Add `DATABASE_URL` -> Paste your connection string from Step 1.
-    - Add `GROQ_API_KEY` -> Your key from [console.groq.com](https://console.groq.com).
-    - Add `NVIDIA_API_KEY` -> Your key from [build.nvidia.com](https://build.nvidia.com).
-    - Add `CORS_ORIGINS` -> `*` (Keep as `*` initially; update in Step 4).
-5.  **Deploy**: Click **Deploy Web Service**.
+    - **Start Command**: `uv run uvicorn app.main:app --host 0.0.0.0 --port $PORT`
+3.  **Environment Variables**:
+    - **DATABASE_URL**: Paste the string from the **Cheat Sheet** above.
+    - **GROQ_API_KEY**: Your API key.
+    - **CORS_ORIGINS**: `*` (Initially).
 
 ---
 
 ## 🌐 Step 3: Frontend Deployment (Vercel)
 
-Vercel is the best home for the React Native/Expo web app.
-
-1.  **Connect Repo**: Go to [vercel.com](https://vercel.com) -> **Add New** -> **Project**.
-2.  **Configure Settings**:
-    - **Root Directory**: Select `frontend`.
-    - **Framework Preset**: select `Other` (Vercel usually auto-detects Vite or Next, but for Expo it's `Other`).
-    - **Build Command**: `npx expo export:web`
-    - **Output Directory**: `dist`
+1.  **Project Root**: Select `frontend`.
+2.  **Build Script**: Should be `npm run build` or `npx expo export -p web`.
 3.  **Environment Variables**:
-    - Add `EXPO_PUBLIC_API_URL` -> Your Render URL + `/api` (e.g., `https://ielts-daily-api.onrender.com/api`).
-4.  **Deploy**: Click **Deploy**.
+    - **EXPO_PUBLIC_API_URL**: Your Render URL + `/api` (e.g. `https://ielts-daily-api.onrender.com/api`).
 
 ---
 
-## 🧪 Step 4: Final Connectivity & CORS
+---
 
-Once both are deployed, you must "handshake" them.
+## 🧪 Step 4: Verification
 
-1.  **Copy Vercel URL**: Get your frontend URL (e.g., `https://ielts-daily.vercel.app`).
-2.  **Update Render CORS**:
-    - Go back to your Render Dashboard -> **Environment**.
-    - Edit `CORS_ORIGINS`.
-    - Add your Vercel URL: `https://ielts-daily.vercel.app,exp://`
-    - Save and wait for Render to redeploy.
-3.  **Verify**: Open your Vercel site. If you see the vocabulary items or can generate a journal entry, the cloud setup is **Stable and Consistent**.
+1.  **Render Logs**: Check your Render dashboard. If you see `Database ready.`, your connection is successful.
+2.  **Health Check**: Visit `https://your-render-url.com/health`. You should see `{"status":"healthy"}` (or similar).
 
 ---
 
-## 🛠️ Troubleshooting
+## 🔄 Step 5: Updating & Re-deploying
 
--   **Database Error?** Check that you replaced `[YOUR-PASSWORD]` in the connection string.
--   **AI Timeout?** Render's free tier sometimes sleeps. The first request might take 30 seconds to "wake up" the server.
--   **Blank Page?** Open the browser console (Right-click -> Inspect -> Console). If you see a "CORS" error, double-check your `CORS_ORIGINS` in Render.
+After you have deployed the app for the first time, follow these steps whenever you make changes to your code:
+
+1.  **Test Locally**: Always ensure your app works locally before pushing.
+2.  **Commit and Push**:
+    ```bash
+    git add .
+    git commit -m "Describe your changes"
+    git push origin main
+    ```
+3.  **Automatic Deployment**:
+    - **Vercel (Frontend)**: Detects the push to GitHub and deploys automatically.
+    - **Render (Backend)**: Detects the push and rebuilds the service.
+
+### 💡 Pro Tips for Continuous Deployment:
+- **New Environment Variables**: If you add a NEW variable to your local `.env` (like a new API key), you **MUST** also add it to the **Environment** settings in Render and Vercel.
+- **Manual Redeploy**: If the auto-deploy doesn't start, find the **"Manual Deploy"** button in Render or the **"Redeploy"** option in Vercel's deployment tab.
