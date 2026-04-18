@@ -1,0 +1,16 @@
+name: Keep Backend Alive
+
+on:
+  schedule:
+    # Runs every 10 minutes (Render free tier timeout is 15 mins)
+    - cron: '*/10 * * * *'
+  workflow_dispatch: # Allows manual trigger for testing
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Send keep-alive ping
+        run: |
+          curl -I https://ielts-daily-api.onrender.com/
+          echo "Ping sent at $(date)"
