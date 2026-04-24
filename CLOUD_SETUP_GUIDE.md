@@ -66,7 +66,7 @@ If your password has these symbols, replace them in the string above:
 ## 🧪 Step 4: Verification
 
 1.  **Render Logs**: Check your Render dashboard. If you see `Database ready.`, your connection is successful.
-2.  **Health Check**: Visit `https://your-render-url.com/health`. You should see `{"status":"healthy"}` (or similar).
+2.  **Health Check**: Visit `https://your-render-url.com/health`. You should see `{"status":"healthy"}`.
 
 ---
 

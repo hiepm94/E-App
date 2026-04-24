@@ -46,5 +46,6 @@ app.include_router(ielts.router, prefix="/api/ielts", tags=["IELTS Modules"])
 
 # ── Health ────────────────────────────────────────────────────────────────
 @app.get("/")
+@app.get("/health")
 def health_check():
     return {"status": "healthy"}
